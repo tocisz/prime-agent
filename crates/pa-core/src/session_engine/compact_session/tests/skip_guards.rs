@@ -19,6 +19,7 @@ async fn execute_compaction_with_pre_aborted_signal_never_runs_the_summarizer() 
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -72,6 +73,7 @@ async fn execute_compaction_with_late_abort_cancels_before_the_commit() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -109,6 +111,7 @@ async fn execute_compaction_skips_short_sessions() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings::default(),
             abort: None,
@@ -150,6 +153,7 @@ async fn execute_compaction_skips_when_already_compacted() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 200,

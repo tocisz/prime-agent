@@ -182,6 +182,13 @@ fn build_headers(
             headers.push((name.clone(), value.clone()));
         }
     }
+    // withOpenCodeHeaders: client identity + conversation headers for the
+    // opencode providers, under the request's own headers.
+    let mut headers = crate::providers::opencode_headers::with_opencode_headers(
+        &model.provider,
+        options.base.session_id.as_deref(),
+        headers,
+    );
     headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     headers
 }
@@ -520,6 +527,35 @@ mod tests {
         assert!(
             compat.send_session_id_header,
             "the absent header flag defaults on"
+        );
+    }
+
+    /// #3482: an `OpenCode` request carries the conversation identity the Go
+    /// endpoint requires (TS `withOpenCodeHeaders`), ungated by cache retention.
+    #[test]
+    fn opencode_requests_carry_the_conversation_headers() {
+        let mut model = compat_model(serde_json::json!({}));
+        model.provider = "opencode-go".into();
+        model.base_url = "https://opencode.ai/zen/go/v1".into();
+        let base = StreamOptions {
+            session_id: Some("session-1".to_string()),
+            ..Default::default()
+        };
+        let options = OpenAIResponsesOptions::from_base(base);
+        let headers = build_headers(&model, "k", &options, None);
+        assert_eq!(
+            headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("x-opencode-session"))
+                .map(|(_, value)| value.as_str()),
+            Some("session-1")
+        );
+        assert_eq!(
+            headers
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("User-Agent"))
+                .map(|(_, value)| value.as_str()),
+            Some("prime-agent")
         );
     }
 

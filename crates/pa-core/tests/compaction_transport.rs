@@ -22,7 +22,7 @@ async fn mock_summary(
     reply: Reply,
 ) -> (
     pa_types::ai::Model,
-    tokio::sync::oneshot::Receiver<Value>,
+    tokio::sync::oneshot::Receiver<(String, Value)>,
     tokio::task::JoinHandle<bool>,
 ) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -31,13 +31,13 @@ async fn mock_summary(
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut bytes = Vec::new();
-        let body = loop {
+        let (headers, body) = loop {
             let mut buffer = [0; 4096];
             let count = socket.read(&mut buffer).await.unwrap();
             assert_ne!(count, 0);
             bytes.extend_from_slice(&buffer[..count]);
             if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
-                let headers = String::from_utf8_lossy(&bytes[..end]);
+                let headers = String::from_utf8_lossy(&bytes[..end]).into_owned();
                 let length: usize = headers
                     .lines()
                     .find_map(|line| {
@@ -47,7 +47,8 @@ async fn mock_summary(
                     })
                     .unwrap();
                 if bytes.len() >= end + 4 + length {
-                    break serde_json::from_slice(&bytes[end + 4..end + 4 + length]).unwrap();
+                    let body = serde_json::from_slice(&bytes[end + 4..end + 4 + length]).unwrap();
+                    break (headers, body);
                 }
             }
         };
@@ -62,7 +63,7 @@ async fn mock_summary(
             }
             Reply::HangBeforeHeaders => {}
         }
-        request_tx.send(body).unwrap();
+        request_tx.send((headers, body)).unwrap();
         match reply {
             Reply::Complete => {
                 let done = json!({"id":"mock","object":"chat.completion.chunk","created":0,"model":"mock","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]});
@@ -92,12 +93,37 @@ async fn mock_summary(
     (model, request_rx, server)
 }
 
+/// The raw request's header value for `name` (case-insensitive).
+fn header_value<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
+    headers
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.trim())
+}
+
+/// The identity headers the `OpenCode` Go endpoint requires on every request
+/// (TS `withOpenCodeHeaders`); a request without them fails 400.
+fn assert_opencode_identity(headers: &str) {
+    assert_eq!(
+        header_value(headers, "x-opencode-session"),
+        Some("session-1"),
+        "request headers: {headers}"
+    );
+    assert_eq!(
+        header_value(headers, "User-Agent"),
+        Some("prime-agent"),
+        "request headers: {headers}"
+    );
+}
+
 #[tokio::test]
 async fn summary_respects_mandatory_thinking() {
     let (model, request, server) = mock_summary(Reply::Complete).await;
     let summary = complete_summary_call(
         &model,
         Some("synthetic-key".into()),
+        None,
         None,
         512,
         Vec::new(),
@@ -107,7 +133,8 @@ async fn summary_respects_mandatory_thinking() {
     .await
     .unwrap();
     assert_eq!(summary.summary, "summary");
-    assert_eq!(request.await.unwrap()["enable_thinking"], json!(true));
+    let (_headers, body) = request.await.unwrap();
+    assert_eq!(body["enable_thinking"], json!(true));
     assert!(server.await.unwrap());
 }
 
@@ -125,6 +152,7 @@ async fn dropped_summary_closes_hung_transport() {
             complete_summary_call(
                 &model,
                 Some("synthetic-key".into()),
+                None,
                 None,
                 512,
                 Vec::new(),
@@ -169,6 +197,7 @@ async fn summary_preserves_unspecified_reasoning_when_off_is_supported() {
             &model,
             Some("synthetic-key".into()),
             None,
+            None,
             512,
             Vec::new(),
             None,
@@ -176,7 +205,8 @@ async fn summary_preserves_unspecified_reasoning_when_off_is_supported() {
         )
         .await
         .unwrap();
-        assert!(request.await.unwrap().get("reasoning_effort").is_none());
+        let (_headers, body) = request.await.unwrap();
+        assert!(body.get("reasoning_effort").is_none());
         assert!(server.await.unwrap());
     }
 }
@@ -202,6 +232,7 @@ async fn branch_summary_respects_mandatory_thinking() {
         GenerateBranchSummaryOptions {
             model: &model,
             api_key: Some("synthetic-key".into()),
+            session_id: None,
             custom_instructions: None,
             replace_instructions: false,
             reserve_tokens: DEFAULT_BRANCH_RESERVE_TOKENS,
@@ -215,7 +246,8 @@ async fn branch_summary_respects_mandatory_thinking() {
         .as_deref()
         .unwrap_or_default()
         .contains("summary"));
-    assert_eq!(request.await.unwrap()["enable_thinking"], json!(true));
+    let (_headers, body) = request.await.unwrap();
+    assert_eq!(body["enable_thinking"], json!(true));
     assert!(server.await.unwrap());
 }
 
@@ -223,13 +255,94 @@ async fn branch_summary_respects_mandatory_thinking() {
 async fn refiner_call_respects_mandatory_thinking() {
     let (model, request, server) = mock_summary(Reply::Complete).await;
     let reply =
-        default_refiner_call(Some("synthetic-key".into()))(model, "system", "prompt".into())
+        default_refiner_call(Some("synthetic-key".into()), None)(model, "system", "prompt".into())
             .await
             .unwrap();
     assert!(matches!(
         reply.content.as_slice(),
         [pa_types::ai::AssistantContentBlock::Text(text)] if text.text == "summary"
     ));
-    assert_eq!(request.await.unwrap()["enable_thinking"], json!(true));
+    let (_headers, body) = request.await.unwrap();
+    assert_eq!(body["enable_thinking"], json!(true));
+    assert!(server.await.unwrap());
+}
+
+/// #3482: an `OpenCode` Go request without `x-opencode-session` fails 400
+/// `MissingSessionID` on every call — compaction summaries, branch summaries,
+/// and refinement all carry the conversation id and the client identity
+/// (TS `withOpenCodeHeaders`).
+#[tokio::test]
+async fn every_model_call_carries_the_opencode_conversation_headers() {
+    // Compaction's summarizer call.
+    let (model, request, server) = mock_summary(Reply::Complete).await;
+    let mut wire = serde_json::to_value(model).unwrap();
+    wire["provider"] = json!("opencode-go");
+    let model = serde_json::from_value(wire).unwrap();
+    complete_summary_call(
+        &model,
+        Some("synthetic-key".into()),
+        None,
+        Some("session-1".into()),
+        512,
+        Vec::new(),
+        None,
+        "summary failed",
+    )
+    .await
+    .unwrap();
+    let (headers, _body) = request.await.unwrap();
+    assert_opencode_identity(&headers);
+    assert!(server.await.unwrap());
+
+    // The branch summary.
+    let (model, request, server) = mock_summary(Reply::Complete).await;
+    let mut wire = serde_json::to_value(model).unwrap();
+    wire["provider"] = json!("opencode-go");
+    let model = serde_json::from_value(wire).unwrap();
+    let entries = [FileEntry::Message {
+        message: AgentMessage::User(pa_types::ai::UserMessage {
+            content: pa_types::ai::UserContent::Text("explored a side branch".to_string()),
+            timestamp: 0,
+            rest: serde_json::Map::default(),
+        }),
+        base: EntryBase {
+            id: Some("u1".to_string()),
+            parent_id: None,
+            timestamp: Some("2024-01-01T00:00:00.000Z".to_string()),
+            rest: serde_json::Map::default(),
+        },
+    }];
+    let result = generate_branch_summary(
+        &entries,
+        GenerateBranchSummaryOptions {
+            model: &model,
+            api_key: Some("synthetic-key".into()),
+            session_id: Some("session-1"),
+            custom_instructions: None,
+            replace_instructions: false,
+            reserve_tokens: DEFAULT_BRANCH_RESERVE_TOKENS,
+            auxiliary: None,
+        },
+    )
+    .await;
+    assert_eq!(result.error, None, "branch summary failed: {result:?}");
+    let (headers, _body) = request.await.unwrap();
+    assert_opencode_identity(&headers);
+    assert!(server.await.unwrap());
+
+    // The refinement call.
+    let (model, request, server) = mock_summary(Reply::Complete).await;
+    let mut wire = serde_json::to_value(model).unwrap();
+    wire["provider"] = json!("opencode-go");
+    let model = serde_json::from_value(wire).unwrap();
+    default_refiner_call(Some("synthetic-key".into()), Some("session-1".into()))(
+        model,
+        "system",
+        "prompt".into(),
+    )
+    .await
+    .unwrap();
+    let (headers, _body) = request.await.unwrap();
+    assert_opencode_identity(&headers);
     assert!(server.await.unwrap());
 }

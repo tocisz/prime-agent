@@ -39,6 +39,9 @@ pub struct CompactOptions<'a> {
     pub model: pa_types::ai::Model,
     /// Resolved API key (None falls back to provider env resolution).
     pub api_key: Option<String>,
+    /// The conversation identity the summarizer request carries (TS
+    /// `sessionId` on the compaction's stream options).
+    pub session_id: Option<String>,
     /// `/compact <instructions>` guidance.
     pub custom_instructions: Option<&'a str>,
     pub settings: super::compaction::CompactionSettings,
@@ -240,6 +243,7 @@ pub(crate) fn prepare_attempt(
 async fn summary_call_with_retry(
     compaction: Option<&super::semantic_edges::SemanticCompaction>,
     summary_headers: Option<std::collections::BTreeMap<String, String>>,
+    session_id: Option<String>,
     model: &pa_types::ai::Model,
     api_key: Option<String>,
     max_tokens: u64,
@@ -253,6 +257,7 @@ async fn summary_call_with_retry(
                 model,
                 api_key.clone(),
                 headers,
+                session_id.clone(),
                 max_tokens,
                 request.clone(),
                 on_delta.clone(),
@@ -276,7 +281,9 @@ async fn summary_call_with_retry(
         }
     }
     let retry = super::semantic_edges::summary_slice_call(compaction, summary_headers, |headers| {
-        complete_summary_call(model, api_key, headers, max_tokens, request, None, failure)
+        complete_summary_call(
+            model, api_key, headers, session_id, max_tokens, request, None, failure,
+        )
     })
     .await?;
     // Both attempts are wire calls, so both bill: the slice's usage is their sum.
@@ -393,6 +400,7 @@ pub(crate) async fn summarize_attempt(
         summary_call_with_retry(
             attempt.semantic_compaction.as_ref(),
             summary_headers.clone(),
+            options.session_id.clone(),
             &model,
             api_key.clone(),
             history_max_tokens,
@@ -416,6 +424,7 @@ pub(crate) async fn summarize_attempt(
         let slice = summary_call_with_retry(
             attempt.semantic_compaction.as_ref(),
             summary_headers.clone(),
+            options.session_id.clone(),
             &model,
             api_key.clone(),
             turn_prefix_max_tokens,

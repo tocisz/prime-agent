@@ -292,6 +292,9 @@ pub fn finalize_branch_summary(
 pub struct GenerateBranchSummaryOptions<'a> {
     pub model: &'a pa_types::ai::Model,
     pub api_key: Option<String>,
+    /// The conversation identity the summary request carries (TS `sessionId`
+    /// on the branch-summarization call).
+    pub session_id: Option<&'a str>,
     pub custom_instructions: Option<&'a str>,
     /// Replace the default prompt instead of appending the custom focus.
     pub replace_instructions: bool,
@@ -353,6 +356,7 @@ pub async fn generate_branch_summary(
     let GenerateBranchSummaryOptions {
         model,
         api_key,
+        session_id,
         custom_instructions,
         replace_instructions,
         reserve_tokens,
@@ -456,6 +460,7 @@ pub async fn generate_branch_summary(
         pa_ai::types::SimpleStreamOptions::from_base(pa_ai::types::StreamOptions {
             max_tokens: Some(BRANCH_SUMMARY_MAX_TOKENS),
             api_key,
+            session_id: session_id.map(str::to_string),
             headers: summary_headers.map(|headers| headers.into_iter().collect()),
             ..Default::default()
         });
@@ -679,6 +684,7 @@ mod tests {
             GenerateBranchSummaryOptions {
                 model: &model,
                 api_key: None,
+                session_id: None,
                 custom_instructions: Some("focus on x"),
                 replace_instructions: false,
                 reserve_tokens: DEFAULT_BRANCH_RESERVE_TOKENS,
@@ -711,6 +717,7 @@ mod tests {
             GenerateBranchSummaryOptions {
                 model: &model,
                 api_key: None,
+                session_id: None,
                 custom_instructions: None,
                 replace_instructions: false,
                 reserve_tokens: DEFAULT_BRANCH_RESERVE_TOKENS,
@@ -774,6 +781,7 @@ mod tests {
                 GenerateBranchSummaryOptions {
                     model: &model,
                     api_key: None,
+                    session_id: None,
                     custom_instructions: None,
                     replace_instructions: false,
                     reserve_tokens: DEFAULT_BRANCH_RESERVE_TOKENS,

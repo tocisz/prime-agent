@@ -487,7 +487,7 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         .map_err(|join| anyhow::anyhow!("websearch key resolve join failed: {join}"))?
     };
     let provisioner = super::runtime_wiring::kernel_provisioner(
-        session_id,
+        session_id.clone(),
         handlers,
         python_skills.clone(),
         cwd.clone(),
@@ -729,6 +729,9 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         should_stop_before_turn: config.queued_steering_probe.clone(),
         steering_mode: config.steering_mode,
         follow_up_mode: config.follow_up_mode,
+        // The conversation identity every stream request carries (TS
+        // `AgentOptions.sessionId`): the session's own id.
+        session_id: Some(session_id),
         ..Default::default()
     });
 

@@ -57,6 +57,7 @@ async fn second_compaction_updates_the_prior_summary_over_new_history() {
         CompactOptions {
             model: model.clone(),
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings,
             abort: None,
@@ -85,6 +86,7 @@ async fn second_compaction_updates_the_prior_summary_over_new_history() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings,
             abort: None,
@@ -211,6 +213,7 @@ async fn second_compaction_request_carries_the_anchor_and_strips_file_blocks() {
         CompactOptions {
             model: model.clone(),
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 2,
@@ -271,6 +274,7 @@ async fn second_compaction_request_carries_the_anchor_and_strips_file_blocks() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 10,
@@ -380,6 +384,7 @@ async fn second_compaction_split_turn_history_updates_prefix_does_not() {
         CompactOptions {
             model: model.clone(),
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings,
             abort: None,
@@ -410,6 +415,7 @@ async fn second_compaction_split_turn_history_updates_prefix_does_not() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 10,

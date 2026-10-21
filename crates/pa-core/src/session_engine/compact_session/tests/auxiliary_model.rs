@@ -52,6 +52,7 @@ async fn compaction_auxiliary_selector_equal_to_the_session_model_runs_on_the_se
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -101,6 +102,7 @@ async fn compaction_auxiliary_selector_unusable_falls_back_to_the_session_model(
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,

@@ -1588,7 +1588,11 @@ fn acp_goal_command_publishes_goal_meta_and_runs_the_continuation() {
     // hosts (TS parity: the continuation loop runs inside the same
     // session/prompt request): the crossing turn's budget-limit steer is
     // the second model segment, and the budget_limited goal settles the
-    // prompt with end_turn instead of looping forever.
+    // prompt with end_turn instead of looping forever. The budget sits
+    // under the reply's output tokens: the faux's simulated cache (every
+    // request now carries the session id) bills the prompt as
+    // cache-written, so the crossing turn's delta is its output alone
+    // ("GOAL-PROGRESS" = 4 tokens).
     let script = json!({ "engine": "faux", "responses": ["GOAL-PROGRESS", "WRAP-UP"] });
     let mut client = AcpChild::spawn(&["--mode", "acp", "--no-session"], &script);
     let init = client.request("initialize", &initialize_params());
@@ -1602,7 +1606,7 @@ fn acp_goal_command_publishes_goal_meta_and_runs_the_continuation() {
 
     let prompt = client.request(
         "session/prompt",
-        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/goal --budget 5 reply with exactly: GOAL-PROGRESS" }] }),
+        &json!({ "sessionId": session_id, "prompt": [{ "type": "text", "text": "/goal --budget 3 reply with exactly: GOAL-PROGRESS" }] }),
     );
     let (prompt_response, updates) = client.wait_response(prompt, TIMEOUT);
 
@@ -1618,7 +1622,7 @@ fn acp_goal_command_publishes_goal_meta_and_runs_the_continuation() {
         &goal_frames[0]["params"]["update"]["_meta"]["ai.primeintellect.prime-agent"]["goal"];
     assert_eq!(first["status"], "active");
     assert_eq!(first["objective"], "reply with exactly: GOAL-PROGRESS");
-    assert_eq!(first["tokenBudget"], 5);
+    assert_eq!(first["tokenBudget"], 3);
     assert_eq!(first["tokensUsed"], 0);
     // The tiny budget crosses at the first turn, so the goal is budget_limited before the wrap-up
     // steer segment runs.

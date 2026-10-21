@@ -347,8 +347,14 @@ pub(crate) fn build_headers(
         }
     }
 
+    // withOpenCodeHeaders: client identity + conversation headers for the
+    // opencode providers, under the request's own headers.
+    let mut headers = crate::providers::opencode_headers::with_opencode_headers(
+        &model.provider,
+        conversation_id,
+        headers,
+    );
     headers.insert(0, ("Authorization".into(), format!("Bearer {api_key}")));
-    let _ = conversation_id;
     headers
 }
 
@@ -358,6 +364,31 @@ mod tests {
     use crate::models::clamp_thinking_level;
     use crate::models_generated;
     use crate::types::{Message, StreamOptions, UserMessage, UserMessageContent};
+
+    /// #3482: an `OpenCode` request carries the conversation identity the Go
+    /// endpoint requires (TS `withOpenCodeHeaders`): `x-opencode-session` from
+    /// the conversation id — ungated by cache retention — plus the client
+    /// `User-Agent`.
+    #[test]
+    fn opencode_requests_carry_the_conversation_headers() {
+        let model = models_generated::get_model("opencode-go", "deepseek-v4-flash")
+            .expect("the catalog carries an opencode-go model");
+        let compat = crate::providers::openai_completions::get_compat(model);
+        let headers = build_headers(model, "k", None, None, &compat, Some("session-1"));
+        assert!(
+            headers.iter().any(|(name, value)| {
+                name.eq_ignore_ascii_case("x-opencode-session") && value == "session-1"
+            }),
+            "the conversation header must ship: {headers:?}"
+        );
+        assert!(
+            headers
+                .iter()
+                .any(|(name, value)| name.eq_ignore_ascii_case("User-Agent")
+                    && value == "prime-agent"),
+            "the client identity must ship: {headers:?}"
+        );
+    }
 
     /// TS #2497 pin: the provider layer owns no Prime Inference team lookup — a prime-inference
     /// request with `PRIME_TEAM_ID` set and no caller header carries no `X-Prime-Team-ID` (the auth
