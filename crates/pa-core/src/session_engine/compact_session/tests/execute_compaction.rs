@@ -16,6 +16,7 @@ async fn execute_compaction_persists_and_rebuilds() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: Some("focus on the goal"),
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -108,6 +109,7 @@ async fn rebuilt_live_context_prevents_repeat_auto_compaction_until_new_usage() 
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings,
             abort: None,
@@ -190,6 +192,7 @@ async fn execute_compaction_streams_summary_deltas_to_the_sink() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -294,6 +297,7 @@ async fn split_turn_compaction_streams_in_final_order_and_converges() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 10,
@@ -402,6 +406,7 @@ async fn execute_compaction_attaches_harness_digest_snapshot() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -512,6 +517,7 @@ async fn execute_compaction_fails_on_an_error_summarizer_response() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -558,6 +564,7 @@ async fn execute_compaction_fails_on_an_empty_summarizer_response() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -606,6 +613,7 @@ async fn execute_compaction_retries_a_length_capped_summarizer_response() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -653,6 +661,7 @@ async fn execute_compaction_accepts_a_twice_capped_summary_behind_the_marker() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -700,6 +709,7 @@ async fn durable_compaction_row_carries_the_ts_record() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,
@@ -731,4 +741,50 @@ async fn durable_compaction_row_carries_the_ts_record() {
         })
         .expect("compaction entry persisted");
     assert_eq!(persisted, run.entry);
+}
+
+/// #3482: the compaction summarizer request carries the conversation id end
+/// to end — the session id rides `CompactOptions` down to the provider's
+/// stream options (`OpenCode` Go rejects every request without it).
+#[tokio::test]
+async fn summary_requests_carry_the_session_id() {
+    let registration = faux_registration();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    registration.set_responses(vec![pa_ai::faux::FauxResponseStep::Factory({
+        let seen = std::sync::Arc::clone(&seen);
+        std::sync::Arc::new(move |_context, options, _call, _model| {
+            seen.lock()
+                .unwrap()
+                .push(options.and_then(|options| options.session_id.clone()));
+            Ok(pa_ai::faux::faux_assistant_text_message(
+                "## Goal\nsummarized goal",
+                pa_ai::faux::FauxAssistantMessageOptions::default(),
+            ))
+        })
+    })]);
+    let model = registration.get_model();
+    let tmp = tempfile::tempdir().unwrap();
+    let mut session = session_with_turns(tmp.path(), 3);
+    execute_compaction(
+        &mut session,
+        CompactOptions {
+            model,
+            api_key: None,
+            session_id: Some("session-1".to_string()),
+            custom_instructions: None,
+            settings: super::super::compaction::CompactionSettings {
+                keep_recent_tokens: 20,
+                ..Default::default()
+            },
+            abort: None,
+            harness_digest: None,
+            auxiliary: None,
+            semantic_edges: None,
+            summary_delta: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(*seen.lock().unwrap(), vec![Some("session-1".to_string())]);
+    registration.unregister();
 }

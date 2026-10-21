@@ -190,6 +190,9 @@ pub async fn run_side_question(
             tools: Some(parent_state.tools.clone()),
             messages: Some(messages),
         },
+        // TS `side-question.ts`: the side call speaks for the parent's
+        // conversation, so it carries the parent's session id.
+        session_id: parent_state.session_id.clone(),
         stream_fn: Some(stream_fn),
         before_tool_call: Some(before_tool_call),
         should_stop_after_turn: Some(should_stop_after_turn),
@@ -521,6 +524,7 @@ mod tests {
                 ]),
             },
             stream_fn: Some(provider.stream_fn()),
+            session_id: Some("session-1".to_string()),
             ..Default::default()
         }))
     }
@@ -604,6 +608,37 @@ mod tests {
 
         // Side results never touch the parent history.
         assert_eq!(parent.state().await.messages.len(), 2);
+    }
+
+    /// #3482: the side call speaks for the parent's conversation (TS
+    /// `side-question.ts`): its stream request carries the parent's session id.
+    #[tokio::test]
+    async fn side_call_carries_the_parent_session_id() {
+        let provider = Arc::new(ScriptedProvider::new(test_model()));
+        provider.push_text_turn("the side answer");
+        let parent = parent_agent(&provider);
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let inner = provider.stream_fn();
+        let stream_fn: pa_agent::stream::StreamFn = {
+            let seen = Arc::clone(&seen);
+            Arc::new(move |model, context, options| {
+                seen.lock().unwrap().push(options.session_id.clone());
+                inner(model, context, options)
+            })
+        };
+        let sink: SideQuestionSink = Arc::new(|_| true);
+        let result = run_side_question(
+            &parent,
+            stream_fn,
+            "what is the answer?",
+            &[],
+            &fast_retry_policy(),
+            &AbortSignal::never(),
+            &sink,
+        )
+        .await;
+        assert_eq!(result.status, SideQuestionStatus::Complete);
+        assert_eq!(*seen.lock().unwrap(), vec![Some("session-1".to_string())]);
     }
 
     #[tokio::test]

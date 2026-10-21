@@ -72,6 +72,8 @@ pub struct AgentStateSnapshot {
     pub streaming_message: Option<AgentMessage>,
     pub pending_tool_calls: HashSet<String>,
     pub error_message: Option<String>,
+    /// The conversation identity every stream request carries (TS `Agent.sessionId`).
+    pub session_id: Option<String>,
 }
 
 #[derive(Default)]
@@ -848,6 +850,7 @@ impl Agent {
             streaming_message: shared.state.streaming_message.as_deref().cloned(),
             pending_tool_calls: shared.state.pending_tool_calls.clone(),
             error_message: shared.state.error_message.clone(),
+            session_id: self.inner.session_id.clone(),
         }
     }
 

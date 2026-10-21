@@ -272,11 +272,13 @@ async fn run_stream(
             headers.push((name.clone(), value.clone()));
         }
     }
-    if model.provider == "opencode" || model.provider == "opencode-go" {
-        if let Some(session_id) = &options.base.session_id {
-            headers.push(("session_id".into(), session_id.clone()));
-        }
-    }
+    // withOpenCodeHeaders: client identity + conversation headers for the
+    // opencode providers, under the request's own headers.
+    let mut headers = crate::providers::opencode_headers::with_opencode_headers(
+        &model.provider,
+        options.base.session_id.as_deref(),
+        headers,
+    );
     headers.push(("x-goog-api-key".into(), api_key));
 
     let mut response: HttpResponse = send(RequestOptions {

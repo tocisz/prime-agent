@@ -103,6 +103,7 @@ async fn split_turn_compaction_runs_two_summarizer_calls_and_merges_the_turn_con
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 10,
@@ -270,6 +271,7 @@ async fn injected_custom_turn_cuts_whole_turns_the_double_row_splits() {
         CompactOptions {
             model: model.clone(),
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: settings(2),
             abort: None,
@@ -321,6 +323,7 @@ async fn injected_custom_turn_cuts_whole_turns_the_double_row_splits() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: settings(2),
             abort: None,
@@ -434,6 +437,7 @@ async fn split_turn_without_history_makes_only_the_prefix_call() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 10,
@@ -599,6 +603,7 @@ async fn a_split_turn_compaction_commits_both_summary_slices_before_its_entry() 
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 10,
@@ -703,6 +708,7 @@ async fn an_aborted_compaction_fails_its_slices_and_records_cancelled() {
         CompactOptions {
             model,
             api_key: None,
+            session_id: None,
             custom_instructions: None,
             settings: super::super::compaction::CompactionSettings {
                 keep_recent_tokens: 20,

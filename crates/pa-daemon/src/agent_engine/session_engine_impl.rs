@@ -739,11 +739,19 @@ impl SessionEngine for AgentSessionEngine {
             agent_dir: self.config.agent_dir.clone(),
         };
         let run = async {
+            // The summary speaks for the session's conversation, so it
+            // carries the session id (TS `sessionId` on the call).
+            let core = self.session.lock().await.clone();
+            let session_id = match core {
+                Some(core) => Some(core.session.session_id().await),
+                None => None,
+            };
             pa_core::session_engine::branch_summarization::generate_branch_summary(
                 &entries,
                 pa_core::session_engine::branch_summarization::GenerateBranchSummaryOptions {
                     model: &model,
                     api_key,
+                    session_id: session_id.as_deref(),
                     custom_instructions: custom_instructions.as_deref(),
                     replace_instructions,
                     reserve_tokens,

@@ -179,6 +179,7 @@ impl AgentSession {
         let options = crate::session_engine::compact_session::CompactOptions {
             model: model.clone(),
             api_key,
+            session_id: Some(self.session_id().await),
             custom_instructions,
             settings: self.compaction_settings(),
             abort,
@@ -272,6 +273,7 @@ impl AgentSession {
             let attempt_options = crate::session_engine::compact_session::CompactOptions {
                 model: options.model.clone(),
                 api_key: options.api_key.clone(),
+                session_id: options.session_id.clone(),
                 custom_instructions: options.custom_instructions,
                 settings: options.settings,
                 abort: options.abort,
@@ -401,7 +403,7 @@ impl AgentSession {
             options,
             source,
             model,
-            refine::default_refiner_call(api_key),
+            refine::default_refiner_call(api_key, Some(self.session_id().await)),
             global_harness_dir,
         )
         .await
