@@ -8,7 +8,7 @@ use super::*;
 use crate::event_stream::AssistantMessageEventExt;
 use crate::registry::get_api_provider;
 use crate::stream::{complete, stream};
-use crate::types::{ErrorStopReason, Tool, UserMessage, UserOrToolContent};
+use crate::types::{ErrorStopReason, Tool, UsageCost, UserMessage, UserOrToolContent};
 
 fn user_text(text: &str) -> Message {
     Message::User(UserMessage {
@@ -652,8 +652,21 @@ async fn simulates_prompt_caching_per_session_id() {
     )
     .await
     .unwrap();
-    assert_eq!(first.usage.cache_read, 0);
-    assert!(first.usage.cache_write > 0);
+    // The simulated cache follows the provider-layer disjoint split: the whole
+    // prompt is billed as written on the first call (nothing stays plain input)
+    // and `total_tokens` keeps its prompt + output meaning under caching.
+    let first_prompt_tokens = estimate_tokens("system:Be concise.\n\nuser:hello");
+    assert_eq!(
+        first.usage,
+        Usage {
+            input: 0,
+            output: estimate_tokens("first"),
+            cache_read: 0,
+            cache_write: first_prompt_tokens,
+            total_tokens: first_prompt_tokens + estimate_tokens("first"),
+            cost: UsageCost::default(),
+        }
+    );
 
     context.messages.push(Message::Assistant(first));
     context.messages.push(user_text("follow up"));
@@ -669,8 +682,21 @@ async fn simulates_prompt_caching_per_session_id() {
     )
     .await
     .unwrap();
-    assert!(second.usage.cache_read > 0);
-    assert!(second.usage.input + second.usage.cache_read > second.usage.input);
+    // The follow-up reads the whole previous prompt from the simulated cache
+    // and writes the new suffix; the write absorbs the split's rounding slack.
+    let second_prompt_tokens =
+        estimate_tokens("system:Be concise.\n\nuser:hello\n\nassistant:first\n\nuser:follow up");
+    assert_eq!(
+        second.usage,
+        Usage {
+            input: 0,
+            output: estimate_tokens("second"),
+            cache_read: first_prompt_tokens,
+            cache_write: second_prompt_tokens - first_prompt_tokens,
+            total_tokens: second_prompt_tokens + estimate_tokens("second"),
+            cost: UsageCost::default(),
+        }
+    );
     registration.unregister();
 }
 

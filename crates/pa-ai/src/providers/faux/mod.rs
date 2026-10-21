@@ -400,12 +400,18 @@ fn with_usage_estimate(
                 let cached_chars = common_prefix_length(&previous_prompt, &prompt_text);
                 let cached_prefix: String = previous_prompt.chars().take(cached_chars).collect();
                 cache_read = estimate_tokens(&cached_prefix);
-                let remaining: String = prompt_text.chars().skip(cached_chars).collect();
-                cache_write = estimate_tokens(&remaining);
-                input = prompt_tokens.saturating_sub(cache_read);
+                // The simulated cache covers the whole prompt (the matched
+                // prefix is read, the rest is written), so the write absorbs
+                // the split's rounding slack.
+                cache_write = prompt_tokens.saturating_sub(cache_read);
             } else {
                 cache_write = prompt_tokens;
             }
+            // Normalize to the provider-layer usage accounting semantics (the
+            // split real providers produce): `input` bills only what neither
+            // cache field covers, so `total_tokens` keeps its prompt + output
+            // meaning under caching.
+            input = prompt_tokens.saturating_sub(cache_read + cache_write);
             cache.insert(session_id, prompt_text);
         }
     }
